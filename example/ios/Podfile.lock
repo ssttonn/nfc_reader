@@ -1,0 +1,22 @@
+PODS:
+  - Flutter (1.0.0)
+  - nfc_reader (0.0.1):
+    - Flutter
+
+DEPENDENCIES:
+  - Flutter (from `Flutter`)
+  - nfc_reader (from `.symlinks/plugins/nfc_reader/ios`)
+
+EXTERNAL SOURCES:
+  Flutter:
+    :path: Flutter
+  nfc_reader:
+    :path: ".symlinks/plugins/nfc_reader/ios"
+
+SPEC CHECKSUMS:
+  Flutter: 50d75fe2f02b26cc09d224853bb45737f8b3214a
+  nfc_reader: 3995137262fec573579d32007ccd67182ce9fa17
+
+PODFILE CHECKSUM: cc1f88378b4bfcf93a6ce00d2c587857c6008d3b
+
+COCOAPODS: 1.11.3
