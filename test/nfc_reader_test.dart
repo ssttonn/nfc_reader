@@ -3,7 +3,6 @@ import 'package:nfc_reader/nfc_reader.dart';
 import 'package:nfc_reader/nfc_reader_platform_interface.dart';
 import 'package:nfc_reader/nfc_reader_method_channel.dart';
 
-
 void main() {
   final NfcReaderPlatform initialPlatform = NfcReaderPlatform.instance;
 
@@ -12,8 +11,8 @@ void main() {
   });
 
   test('getPlatformVersion', () async {
-    NfcReader nfcReaderPlugin = NfcReader();
-  
+    NFCTagReader nfcReaderPlugin = NFCTagReader();
+
     expect(await nfcReaderPlugin.isNFCAvailable(), '42');
   });
 }

@@ -26,7 +26,7 @@ class _ScannedTagsPageState extends State<ScannedTagsPage> {
 
   _onScanDefTag() async {
     try {
-      NFCTag tag = await NfcReader.instance.scanNFCNDefTag();
+      NFCTag tag = await NFCTagReader.instance.scanNFCNDefTag();
 
       setState(() {
         tags.add(tag);
@@ -36,7 +36,7 @@ class _ScannedTagsPageState extends State<ScannedTagsPage> {
 
   _onScanTag() async {
     try {
-      NFCTag tag = await NfcReader.instance.scanTag();
+      NFCTag tag = await NFCTagReader.instance.scanTag();
       setState(() {
         tags.add(tag);
       });
@@ -45,7 +45,7 @@ class _ScannedTagsPageState extends State<ScannedTagsPage> {
 
   Widget _body() {
     return FutureBuilder<bool>(
-        future: NfcReader.instance
+        future: NFCTagReader.instance
             .isNFCAvailable(), // Detect if the current device supports NFC
         builder: (context, snapshot) {
           if (snapshot.hasData && snapshot.data!) {

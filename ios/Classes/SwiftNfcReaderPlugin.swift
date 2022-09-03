@@ -7,6 +7,7 @@ public class SwiftNfcReaderPlugin: NSObject, FlutterPlugin {
     var session: NFCReaderSession?
     var result: FlutterResult?
     var currentArguments: [String: Any?] = [:]
+    var callbackMethod: CallbackMethod?
     
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(name: "nfc_reader", binaryMessenger: registrar.messenger())
@@ -19,28 +20,17 @@ public class SwiftNfcReaderPlugin: NSObject, FlutterPlugin {
         case "isNFCAvailable":
             result(NFCReaderSession.readingAvailable)
         case "scanNDEFTag":
-            if let arguments = call.arguments as? [String: Any?]{
-                currentArguments = arguments
-            }
-            self.scan(session: NFCNDEFReaderSession(delegate: self, queue: nil, invalidateAfterFirstRead: currentArguments["invalidateAfterFirstRead"] as? Bool ?? false), arguments: currentArguments, result: result)
+            callbackMethod = .readNDef
+            self.openNDefScanPopup(arguments: call.arguments, result: result)
         case "scanTag":
-            var pollingOptions: NFCTagReaderSession.PollingOption = []
-            if let arguments = call.arguments as? [String: Any?]{
-                currentArguments = arguments
-                if let pollingOptionsFromArgs = arguments["pollingOptions"] as? [String]{
-                    if pollingOptionsFromArgs.contains("iso14443"){
-                        pollingOptions.insert(.iso14443)
-                    }
-                    if pollingOptionsFromArgs.contains("iso15693"){
-                        pollingOptions.insert(.iso15693)
-                    }
-                    if pollingOptionsFromArgs.contains("iso18092"){
-                        pollingOptions.insert(.iso18092)
-                    }
-                }
-                
-            }
-            self.scan(session: NFCTagReaderSession(pollingOption: pollingOptions, delegate: self)!, arguments: currentArguments, result: result)
+            callbackMethod = .read
+            self.openScanPopup(arguments: call.arguments, result: result)
+        case "writeNDEFTag":
+            callbackMethod = .writeNDef
+            self.openNDefScanPopup(arguments: call.arguments, result: result)
+        case "writeTag":
+            callbackMethod = .write
+            self.openScanPopup(arguments: call.arguments, result: result)
         case "finishCurrentSession":
             if let arguments = call.arguments as? [String: Any?]{
                 currentArguments = arguments
@@ -49,6 +39,33 @@ public class SwiftNfcReaderPlugin: NSObject, FlutterPlugin {
         default:
             return
         }
+    }
+    
+    func openScanPopup(arguments: Any?, result: @escaping FlutterResult){
+        var pollingOptions: NFCTagReaderSession.PollingOption = []
+        if let arguments = arguments as? [String: Any?]{
+            currentArguments = arguments
+            if let pollingOptionsFromArgs = arguments["pollingOptions"] as? [String]{
+                if pollingOptionsFromArgs.contains("iso14443"){
+                    pollingOptions.insert(.iso14443)
+                }
+                if pollingOptionsFromArgs.contains("iso15693"){
+                    pollingOptions.insert(.iso15693)
+                }
+                if pollingOptionsFromArgs.contains("iso18092"){
+                    pollingOptions.insert(.iso18092)
+                }
+            }
+            
+        }
+        self.scan(session: NFCTagReaderSession(pollingOption: pollingOptions, delegate: self)!, arguments: currentArguments, result: result)
+    }
+    
+    func openNDefScanPopup(arguments: Any?, result: @escaping FlutterResult){
+        if let arguments = arguments as? [String: Any?]{
+            currentArguments = arguments
+        }
+        self.scan(session: NFCNDEFReaderSession(delegate: self, queue: nil, invalidateAfterFirstRead: currentArguments["invalidateAfterFirstRead"] as? Bool ?? false), arguments: currentArguments, result: result)
     }
 }
 
