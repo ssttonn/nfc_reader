@@ -1,4 +1,3 @@
-// TODO Implement record
 class Record {
   final String id;
   final String payload;

@@ -7,7 +7,8 @@ public class SwiftNfcReaderPlugin: NSObject, FlutterPlugin {
     var session: NFCReaderSession?
     var result: FlutterResult?
     var currentArguments: [String: Any?] = [:]
-    var callbackMethod: CallbackMethod?
+    var methodUse: MethodUse?
+    var timeoutTimer: Timer?
     
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(name: "nfc_reader", binaryMessenger: registrar.messenger())
@@ -20,16 +21,22 @@ public class SwiftNfcReaderPlugin: NSObject, FlutterPlugin {
         case "isNFCAvailable":
             result(NFCReaderSession.readingAvailable)
         case "scanNDEFTag":
-            callbackMethod = .readNDef
+            methodUse = .read
             self.openNDefScanPopup(arguments: call.arguments, result: result)
         case "scanTag":
-            callbackMethod = .read
+            methodUse = .read
             self.openScanPopup(arguments: call.arguments, result: result)
         case "writeNDEFTag":
-            callbackMethod = .writeNDef
+            methodUse = .write
             self.openNDefScanPopup(arguments: call.arguments, result: result)
         case "writeTag":
-            callbackMethod = .write
+            methodUse = .write
+            self.openScanPopup(arguments: call.arguments, result: result)
+        case "lockNdefTag":
+            methodUse = .writeLock
+            self.openNDefScanPopup(arguments: call.arguments, result: result)
+        case "lockTag":
+            methodUse = .writeLock
             self.openScanPopup(arguments: call.arguments, result: result)
         case "finishCurrentSession":
             if let arguments = call.arguments as? [String: Any?]{
@@ -41,7 +48,7 @@ public class SwiftNfcReaderPlugin: NSObject, FlutterPlugin {
         }
     }
     
-    func openScanPopup(arguments: Any?, result: @escaping FlutterResult){
+    private func openScanPopup(arguments: Any?, result: @escaping FlutterResult){
         var pollingOptions: NFCTagReaderSession.PollingOption = []
         if let arguments = arguments as? [String: Any?]{
             currentArguments = arguments
@@ -61,7 +68,7 @@ public class SwiftNfcReaderPlugin: NSObject, FlutterPlugin {
         self.scan(session: NFCTagReaderSession(pollingOption: pollingOptions, delegate: self)!, arguments: currentArguments, result: result)
     }
     
-    func openNDefScanPopup(arguments: Any?, result: @escaping FlutterResult){
+    private func openNDefScanPopup(arguments: Any?, result: @escaping FlutterResult){
         if let arguments = arguments as? [String: Any?]{
             currentArguments = arguments
         }
@@ -81,7 +88,8 @@ extension SwiftNfcReaderPlugin{
         self.result = result
         session.begin()
         if let timeoutInMillis = arguments["timeoutInMillis"] as? Int{
-            Timer.scheduledTimer(withTimeInterval: TimeInterval(timeoutInMillis / 1000), repeats: false){ timer in
+            timeoutTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(timeoutInMillis / 1000), repeats: false){ timer in
+                timer.invalidate()
                 self.finishSession(withErrorMessage: arguments["sessionTimeoutError"] as? String? ?? "Session timeout")
             }
         }
@@ -105,36 +113,102 @@ extension SwiftNfcReaderPlugin{
                 scanData["readable"] = true
             case .readOnly:
                 scanData["readable"] = true
+                scanData["writable"] = false
             default:
                 break;
             }
             scanData["capacity"] = capacity
-            tag.readNDEF{ message, error in
-                var statusMessage: String
-                if nil != error || nil == message {
-                    return self.handleNFCError(error: error!, withErrorKey: "readNDefError", defaultMessage: "Fail to read NDEF message from tag")
+            switch self.methodUse{
+            case .write:
+                if ndefStatus == .readWrite{
+                    self.writeNDef(tag: tag)
+                } else{
+                    return self.handleNFCError(withErrorKey: "tagIsReadOnlyError", defaultMessage: "This NFC Tag is read only")
                 }
-                statusMessage = self.currentArguments["defaultSuccessMessage"] as? String ?? "Found 1 NDEF message"
-                DispatchQueue.main.async {
-                    // Process detected NFCNDEFMessage objects.
-                    // TODO
-                    do {
-                        scanData["payloads"] = message?.records.map(self.parsePayload)
-                        let jsonData = try JSONSerialization.data(withJSONObject: scanData,options: .prettyPrinted)
-                        let jsonString = String(data: jsonData, encoding: .utf8)
-                        self.result?(jsonString)
-                    }catch{
-                        self.handleNFCError(error: error, withErrorKey: "parsingDataError", defaultMessage: "Error when parsing data")
-                    }
-                    self.session?.alertMessage = statusMessage
-                    self.finishSession()
+            case .writeLock:
+                if ndefStatus == .readWrite{
+                    self.writeNDef(tag: tag)
+                } else{
+                    return self.handleNFCError(error: error!, withErrorKey: "tagIsReadOnlyError", defaultMessage: "This NFC Tag is read only")
                 }
-                
+            case .read:
+                self.readNDef(data: scanData, tag: tag)
+            case .none:
+                return
             }
         }
     }
     
-    private func parsePayload(_ record: NFCNDEFPayload)-> [String: Any]{
+    private func readNDef(data: [String: Any?], tag: NFCNDEFTag){
+        var scanData = data
+        tag.readNDEF{ message, error in
+            var statusMessage: String
+            if nil != error || nil == message {
+                return self.handleNFCError(error: error!, withErrorKey: "readNDefError", defaultMessage: "Fail to read NDEF message from tag")
+            }
+            statusMessage = self.currentArguments["defaultSuccessMessage"] as? String ?? "Found 1 NDEF message"
+            DispatchQueue.main.async {
+                // Process detected NFCNDEFMessage objects.
+                // TODO
+                do {
+                    scanData["payloads"] = message?.records.map(self.getPayloadFromRecord)
+                    let jsonData = try JSONSerialization.data(withJSONObject: scanData,options: .prettyPrinted)
+                    let jsonString = String(data: jsonData, encoding: .utf8)
+                    self.result?(jsonString)
+                }catch{
+                    return self.handleNFCError(error: error, withErrorKey: "parsingDataError", defaultMessage: "Error when parsing data")
+                }
+            }
+            self.session?.alertMessage = statusMessage
+            self.finishSession()
+        }
+    }
+    
+    private func writeNDef(tag: NFCNDEFTag){
+        var recordJson: [[String: Any?]] = []
+        if let recordsJsonString = currentArguments["rawRecords"] as? String{
+            guard let data = recordsJsonString.data(using: .utf8) else{
+                return
+            }
+            do{
+                recordJson = try JSONSerialization.jsonObject(with: data) as? [[String: Any?]] ?? []
+            }catch{
+                return self.handleNFCError(error: error, withErrorKey: "parsingDataError", defaultMessage: "Error when parsing data")
+            }
+        }
+        tag.writeNDEF(NFCNDEFMessage(records: recordJson.map(getRecordFromRawJson))){error in
+            var statusMessage: String
+            if error != nil{
+                return self.handleNFCError(error: error!, withErrorKey: "cantWriteError", defaultMessage: "Can't write to this tag, please try again")
+            }
+            statusMessage = self.currentArguments["defaultSuccessMessage"] as? String ?? "Write to tag successfully"
+            self.result?(nil)
+            self.session?.alertMessage = statusMessage
+            self.finishSession()
+        }
+    }
+    
+    private func writeLock(tag: NFCNDEFTag){
+        tag.writeLock{ error in
+            var statusMessage: String
+            if error != nil{
+                return self.handleNFCError(error: error!, withErrorKey: "cantWriteError", defaultMessage: "Can't write to this tag, please try again")
+            }
+            statusMessage = self.currentArguments["defaultSuccessMessage"] as? String ?? "This tag has been locked"
+            self.session?.alertMessage = statusMessage
+            self.finishSession()
+        }
+    }
+    
+    private func getRecordFromRawJson(raw: [String: Any?]) -> NFCNDEFPayload {
+        let format = NFCTypeNameFormat.init(rawValue: UInt8(raw["format"] as? Int ?? 5)) ?? .unknown
+        let identifer = (raw["identifer"] as? String ?? "").data(using: .utf8) ?? Data()
+        let type = (raw["type"] as? String ?? "")?.data(using: .utf8) ?? Data()
+        let payload = (raw["data"] as? String ?? "")?.data(using: .utf8) ?? Data()
+        return NFCNDEFPayload(format: format, type: type, identifier: identifer, payload: payload)
+    }
+    
+    private func getPayloadFromRecord(_ record: NFCNDEFPayload)-> [String: Any]{
         var payload: [String: Any] = [:]
         payload["format"] = record.typeNameFormat.rawValue
         if let identifer = record.identifier.encode(){
@@ -170,14 +244,15 @@ extension SwiftNfcReaderPlugin{
         return payload
     }
     
-    private func handleNFCError(error: Error, withErrorKey key: String? = nil, defaultMessage: String? = nil){
+    private func handleNFCError(error: Error? = nil, withErrorKey key: String? = nil, defaultMessage: String? = nil){
         var errorMessage = ""
         if key != nil, let errorMessageFromArgs = (self.currentArguments[key!] as? String){
             errorMessage = errorMessageFromArgs
         }else {
             errorMessage = defaultMessage ?? (self.currentArguments["unknownError"] as? String) ?? "Unknown Error"
         }
-        self.handleFlutterError(withMessage: errorMessage, withDetails: error.localizedDescription)
+     
+        self.handleFlutterError(withMessage: errorMessage, withDetails: error?.localizedDescription)
         return
     }
     
@@ -227,6 +302,8 @@ extension SwiftNfcReaderPlugin: NFCNDEFReaderSessionDelegate{
         }else{
             self.session?.invalidate()
         }
+        self.timeoutTimer?.invalidate()
+        self.timeoutTimer = nil
         self.result = nil
         self.session = nil
     }

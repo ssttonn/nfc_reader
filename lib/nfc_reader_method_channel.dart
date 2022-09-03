@@ -53,6 +53,39 @@ class MethodChannelNfcReader extends NfcReaderPlatform {
   }
 
   @override
+  Future writeNFCNDefTag(
+      {List<NFCDefPayload> payloads = const [],
+      NFCConfiguration? configuration}) async {
+    late NFCConfiguration defaultConfiguration;
+    if (Platform.isIOS) {
+      defaultConfiguration = IosNfcScanConfiguration();
+    } else {
+      //TODO implement android configurations
+    }
+    await methodChannel.invokeMethod("writeNDEFTag", {
+      ...(configuration ?? defaultConfiguration).toJson(),
+      "rawRecords": jsonEncode(payloads.map((payload) => payload.toJson()))
+    });
+  }
+
+  @override
+  Future writeNFCTag(
+      {List<NFCDefPayload> payloads = const [],
+      NFCConfiguration? configuration}) async {
+    late NFCConfiguration defaultConfiguration;
+    if (Platform.isIOS) {
+      defaultConfiguration = IosNfcScanConfiguration();
+    } else {
+      //TODO implement android configurations
+    }
+    await methodChannel.invokeMethod("writeTag", {
+      ...(configuration ?? defaultConfiguration).toJson(),
+      "rawRecords":
+          jsonEncode(payloads.map((payload) => payload.toJson()).toList())
+    });
+  }
+
+  @override
   void finishCurrentSession({String? errorMessage}) async {
     return await methodChannel.invokeMethod("finishCurrentSession",
         {if (errorMessage != null) "errorMessage": errorMessage});

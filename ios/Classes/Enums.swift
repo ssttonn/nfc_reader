@@ -7,6 +7,6 @@
 
 import Foundation
 
-enum CallbackMethod{
-    case readNDef, writeNDef, read, write
+enum MethodUse{
+    case read, write, writeLock
 }

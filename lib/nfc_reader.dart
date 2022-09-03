@@ -22,7 +22,12 @@ class NFCTagReader {
     return NfcReaderPlatform.instance.scanNFCTag(configuration: configuration);
   }
 
-  
+  Future writeTag(
+      {List<NFCDefPayload> payloads = const [],
+      NFCConfiguration? configuration}) {
+    return NfcReaderPlatform.instance
+        .writeNFCTag(payloads: payloads, configuration: configuration);
+  }
 
   void finishCurrentSession({String? errorMessage}) {
     return NfcReaderPlatform.instance

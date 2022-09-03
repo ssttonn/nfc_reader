@@ -37,6 +37,14 @@ abstract class NfcReaderPlatform extends PlatformInterface {
     throw UnimplementedError('scanNFCTag() has not been implemented.');
   }
 
+  Future writeNFCNDefTag(
+      {List<NFCDefPayload> payloads = const [],
+      NFCConfiguration? configuration});
+
+  Future writeNFCTag(
+      {List<NFCDefPayload> payloads = const [],
+      NFCConfiguration? configuration});
+
   void finishCurrentSession({String? errorMessage}) {
     throw UnimplementedError(
         'finishCurrentSession() has not been implemented.');

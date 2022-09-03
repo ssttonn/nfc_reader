@@ -92,4 +92,13 @@ class NFCDefPayload {
         type: json["type"] as String? ?? "",
         data: json["data"] as String? ?? "");
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      "format": typeNameFormat.index,
+      "identifer": identifer,
+      "type": type,
+      "data": data
+    };
+  }
 }

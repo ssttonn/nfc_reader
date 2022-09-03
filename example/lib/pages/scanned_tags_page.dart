@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:nfc_reader/base/enums.dart';
 import 'package:nfc_reader/models/nfc_tag.dart';
 import 'package:nfc_reader/nfc_reader.dart';
 
@@ -53,6 +54,16 @@ class _ScannedTagsPageState extends State<ScannedTagsPage> {
               children: [
                 _scanBtn("Scan for NDEF tags", onPressed: _onScanDefTag),
                 _scanBtn("Scan for tags", onPressed: _onScanTag),
+                _scanBtn("Write example records",
+                    onPressed: () => {
+                          NFCTagReader.instance.writeTag(payloads: [
+                            NFCDefPayload(
+                                typeNameFormat: TypeNameFormat.nfcWellKnown,
+                                identifer: "identifer",
+                                type: "dsa",
+                                data: "dsds")
+                          ])
+                        }),
                 ...tags
                     .map((tag) => Container(
                           padding: const EdgeInsets.all(14),
