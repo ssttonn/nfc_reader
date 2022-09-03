@@ -7,9 +7,7 @@ class NfcReader {
   static final NfcReader _instance = NfcReader._internal();
 
   NfcReader._internal();
-  factory NfcReader() {
-    return _instance;
-  }
+  static NfcReader instance = _instance;
 
   Future<bool> isNFCAvailable() {
     return NfcReaderPlatform.instance.isNFCAvailable();
@@ -18,5 +16,14 @@ class NfcReader {
   Future<NFCTag> scanNFCNDefTag({NFCConfiguration? configuration}) {
     return NfcReaderPlatform.instance
         .scanNFCNDefTag(configuration: configuration);
+  }
+
+  Future<NFCTag> scanTag({NFCConfiguration? configuration}) {
+    return NfcReaderPlatform.instance.scanNFCTag(configuration: configuration);
+  }
+
+  void finishCurrentSession({String? errorMessage}) {
+    return NfcReaderPlatform.instance
+        .finishCurrentSession(errorMessage: errorMessage);
   }
 }

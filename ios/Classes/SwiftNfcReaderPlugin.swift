@@ -6,6 +6,7 @@ import CoreNFC
 public class SwiftNfcReaderPlugin: NSObject, FlutterPlugin {
     var session: NFCReaderSession?
     var result: FlutterResult?
+    var currentArguments: [String: Any?] = [:]
     
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(name: "nfc_reader", binaryMessenger: registrar.messenger())
@@ -19,10 +20,32 @@ public class SwiftNfcReaderPlugin: NSObject, FlutterPlugin {
             result(NFCReaderSession.readingAvailable)
         case "scanNDEFTag":
             if let arguments = call.arguments as? [String: Any?]{
-                self.scan(session: NFCNDEFReaderSession(delegate: self, queue: nil, invalidateAfterFirstRead: true), arguments: arguments, result: result)
+                currentArguments = arguments
             }
+            self.scan(session: NFCNDEFReaderSession(delegate: self, queue: nil, invalidateAfterFirstRead: currentArguments["invalidateAfterFirstRead"] as? Bool ?? false), arguments: currentArguments, result: result)
         case "scanTag":
-            self.scan(session: NFCTagReaderSession(pollingOption: [.iso14443,.iso15693,.iso18092], delegate: self)!, arguments: [:], result: result)
+            var pollingOptions: NFCTagReaderSession.PollingOption = []
+            if let arguments = call.arguments as? [String: Any?]{
+                currentArguments = arguments
+                if let pollingOptionsFromArgs = arguments["pollingOptions"] as? [String]{
+                    if pollingOptionsFromArgs.contains("iso14443"){
+                        pollingOptions.insert(.iso14443)
+                    }
+                    if pollingOptionsFromArgs.contains("iso15693"){
+                        pollingOptions.insert(.iso15693)
+                    }
+                    if pollingOptionsFromArgs.contains("iso18092"){
+                        pollingOptions.insert(.iso18092)
+                    }
+                }
+                
+            }
+            self.scan(session: NFCTagReaderSession(pollingOption: pollingOptions, delegate: self)!, arguments: currentArguments, result: result)
+        case "finishCurrentSession":
+            if let arguments = call.arguments as? [String: Any?]{
+                currentArguments = arguments
+            }
+            self.finishSession(withErrorMessage: currentArguments["errorMessage"] as? String)
         default:
             return
         }
@@ -33,20 +56,27 @@ public class SwiftNfcReaderPlugin: NSObject, FlutterPlugin {
 @available(iOS 13, *)
 extension SwiftNfcReaderPlugin{
     private func scan(session: NFCReaderSession, arguments: [String: Any?], result: @escaping FlutterResult){
+        self.finishSession()
         self.session = session
         if let alertMessage = arguments["defaultAlertMessage"] as? String{
             self.session?.alertMessage = alertMessage
         }
         self.result = result
         session.begin()
+        if let timeoutInMillis = arguments["timeoutInMillis"] as? Int{
+            Timer.scheduledTimer(withTimeInterval: TimeInterval(timeoutInMillis / 1000), repeats: false){ timer in
+                self.finishSession(withErrorMessage: arguments["sessionTimeoutError"] as? String? ?? "Session timeout")
+            }
+        }
+     
     }
     
-    private func queryNDefTag(withData sData:[String: Any],tag: NFCNDEFTag){
+    private func queryNDefTag(withData sData:[String: Any], tag: NFCNDEFTag){
         var scanData = sData
         tag.queryNDEFStatus{ ndefStatus, capacity, error in
-            guard error == nil else {
-                self.handleFlutterError(withMessage: "Unable to query NDEF status of tag", withDetails: error?.localizedDescription)
-                return }
+            if error != nil{
+                return self.handleNFCError(error: error!, withErrorKey: "queryNDefStatusError", defaultMessage: "Unable to query NDEF status of tag")
+            }
             //change support status to true
             scanData["supported"] = true
             switch ndefStatus {
@@ -58,7 +88,6 @@ extension SwiftNfcReaderPlugin{
                 scanData["readable"] = true
             case .readOnly:
                 scanData["readable"] = true
-                
             default:
                 break;
             }
@@ -66,11 +95,9 @@ extension SwiftNfcReaderPlugin{
             tag.readNDEF{ message, error in
                 var statusMessage: String
                 if nil != error || nil == message {
-                    statusMessage = "Fail to read NDEF from tag"
-                    self.handleFlutterError(withMessage: statusMessage, withDetails: error?.localizedDescription)
-                    return
+                    return self.handleNFCError(error: error!, withErrorKey: "readNDefError", defaultMessage: "Fail to read NDEF message from tag")
                 }
-                statusMessage = "Found 1 NDEF message"
+                statusMessage = self.currentArguments["defaultSuccessMessage"] as? String ?? "Found 1 NDEF message"
                 DispatchQueue.main.async {
                     // Process detected NFCNDEFMessage objects.
                     // TODO
@@ -79,15 +106,11 @@ extension SwiftNfcReaderPlugin{
                         let jsonData = try JSONSerialization.data(withJSONObject: scanData,options: .prettyPrinted)
                         let jsonString = String(data: jsonData, encoding: .utf8)
                         self.result?(jsonString)
-                        self.result = nil
                     }catch{
-                        statusMessage = "Error when parsing data"
-                        self.handleFlutterError(withMessage: statusMessage, withDetails: error.localizedDescription)
-                        return
+                        self.handleNFCError(error: error, withErrorKey: "parsingDataError", defaultMessage: "Error when parsing data")
                     }
-                    
                     self.session?.alertMessage = statusMessage
-                    self.resetSession()
+                    self.finishSession()
                 }
                 
             }
@@ -130,9 +153,20 @@ extension SwiftNfcReaderPlugin{
         return payload
     }
     
-    func handleFlutterError(withErrorCode code: String = "500",withMessage message: String, withDetails details: Any?){
-        self.result?(FlutterError(code: code, message: message, details: details))
-        self.resetSession()
+    private func handleNFCError(error: Error, withErrorKey key: String? = nil, defaultMessage: String? = nil){
+        var errorMessage = ""
+        if key != nil, let errorMessageFromArgs = (self.currentArguments[key!] as? String){
+            errorMessage = errorMessageFromArgs
+        }else {
+            errorMessage = defaultMessage ?? (self.currentArguments["unknownError"] as? String) ?? "Unknown Error"
+        }
+        self.handleFlutterError(withMessage: errorMessage, withDetails: error.localizedDescription)
+        return
+    }
+    
+    private func handleFlutterError(withErrorCode code: String = "500",withMessage message: String?, withDetails details: Any?){
+        self.result?(FlutterError(code: code, message: message ?? (currentArguments["unknownError"] as? String) ?? "Unknown error", details: details))
+        self.finishSession(withErrorMessage: message)
     }
 }
 
@@ -142,18 +176,16 @@ extension SwiftNfcReaderPlugin{
 extension SwiftNfcReaderPlugin: NFCNDEFReaderSessionDelegate{
     public func readerSession(_ session: NFCNDEFReaderSession, didInvalidateWithError error: Error) {
         var errorMessage = ""
-        var errorCode = "500"
-        if let nfcError = error as? NFCReaderError{
+        if error is NFCReaderError{
             errorMessage = "NFC session error"
-            errorCode = String(nfcError.errorCode)
         } else{
             errorMessage = "Session is invalidated with error"
         }
-        handleFlutterError(withErrorCode: errorCode, withMessage: errorMessage, withDetails: error.localizedDescription)
+        self.handleNFCError(error: error, withErrorKey: "sessionError", defaultMessage: errorMessage)
     }
     
     public func readerSession(_ session: NFCNDEFReaderSession, didDetectNDEFs messages: [NFCNDEFMessage]) {
-        
+        print(messages)
     }
     
     public func readerSession(_ session: NFCNDEFReaderSession, didDetect tags: [NFCNDEFTag]) {
@@ -162,24 +194,27 @@ extension SwiftNfcReaderPlugin: NFCNDEFReaderSessionDelegate{
         let tag = tags.first!
         session.connect(to: tag){error in
             if nil != error {
-                self.handleFlutterError( withMessage: "Can't connect to NFC Card", withDetails: error?.localizedDescription)
-                return
+                return self.handleNFCError(error: error!,withErrorKey: "connectTagError", defaultMessage: "Can't connect to NFC Card")
             }
             scanData["name"] = "NDef"
-            scanData["type"] = "nDef"
+            scanData["type"] = "ndef"
             scanData["standards"] = ["NFC Data Exchange Format"]
             self.queryNDefTag(withData: scanData, tag: tag)
         }
         
     }
     
-    private func resetSession(){
-        self.session?.invalidate()
+    private func finishSession(withErrorMessage errorMessage: String? = nil){
+        if errorMessage != nil{
+            self.session?.invalidate(errorMessage: errorMessage!)
+        }else{
+            self.session?.invalidate()
+        }
         self.result = nil
         self.session = nil
     }
     
- 
+    
     
     public func readerSessionDidBecomeActive(_ session: NFCNDEFReaderSession) {
         
@@ -190,19 +225,17 @@ extension SwiftNfcReaderPlugin: NFCNDEFReaderSessionDelegate{
 @available(iOS 13.0, *)
 extension SwiftNfcReaderPlugin: NFCTagReaderSessionDelegate{
     public func tagReaderSessionDidBecomeActive(_ session: NFCTagReaderSession) {
-        
+   
     }
     
     public func tagReaderSession(_ session: NFCTagReaderSession, didInvalidateWithError error: Error) {
         var errorMessage = ""
-        var errorCode = "500"
-        if let nfcError = error as? NFCReaderError{
+        if error is NFCReaderError{
             errorMessage = "NFC session error"
-            errorCode = String(nfcError.errorCode)
         } else{
             errorMessage = "Session is invalidated with error"
         }
-        handleFlutterError(withErrorCode: errorCode, withMessage: errorMessage, withDetails: error.localizedDescription)
+        self.handleNFCError(error: error, withErrorKey: "sessionError", defaultMessage: errorMessage)
     }
     
     public func tagReaderSession(_ session: NFCTagReaderSession, didDetect tags: [NFCTag]) {
@@ -212,6 +245,7 @@ extension SwiftNfcReaderPlugin: NFCTagReaderSessionDelegate{
         
         session.connect(to: tag){error in
             if nil != error {
+                session.alertMessage = "Can't connect to NFC Card"
                 self.handleFlutterError( withMessage: "Can't connect to NFC Card", withDetails: error?.localizedDescription)
                 return
             }
@@ -227,7 +261,7 @@ extension SwiftNfcReaderPlugin: NFCTagReaderSessionDelegate{
         switch tag{
         case .feliCa(let felicaTag):
             scanData["name"] = "FeliCa"
-            scanData["type"] = "feliCa"
+            scanData["type"] = "felica"
             scanData["standards"] = ["ISO/IEC 18092"]
             if let systemCode = felicaTag.currentSystemCode.encode(){
                 scanData["currentSystemCode"] = systemCode
@@ -254,7 +288,7 @@ extension SwiftNfcReaderPlugin: NFCTagReaderSessionDelegate{
                 fallthrough
             default:
                 scanData["name"] = "Unknown"
-                scanData["type"] = "unknown"
+                scanData["type"] = "mifareUnknown"
                 scanData["standards"] = ["ISO/IEC 14443 A"]
             }
             if let identifer = mifareTag.identifier.encode(){
@@ -266,6 +300,7 @@ extension SwiftNfcReaderPlugin: NFCTagReaderSessionDelegate{
             ndefTag = mifareTag
         case .iso7816(let iso7816Tag):
             scanData["name"] = "iso7816"
+            scanData["type"] = "iso7816"
             scanData["standards"] = ["ISO/IEC 7816"]
             if let identifer = iso7816Tag.identifier.encode(){
                 scanData["identifer"] = identifer
@@ -283,6 +318,7 @@ extension SwiftNfcReaderPlugin: NFCTagReaderSessionDelegate{
             ndefTag = iso7816Tag
         case .iso15693(let iso15693Tag):
             scanData["name"] = "iso15693"
+            scanData["type"] = "iso15693"
             scanData["standards"] = ["ISO/IEC 15693"]
             if let identifer = iso15693Tag.identifier.encode(){
                 scanData["identifer"] = identifer

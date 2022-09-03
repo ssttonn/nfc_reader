@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:developer';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -23,17 +25,36 @@ class MethodChannelNfcReader extends NfcReaderPlatform {
     return isNFCAvailable;
   }
 
-  /// [scanNFCNDefTag] method for
   @override
-  Future<NFCDefTag> scanNFCNDefTag({NFCConfiguration? configuration}) async {
-    final result = await methodChannel.invokeMethod("scanNDEFTag",
-        configuration == null ? {} : {...configuration.toJson()});
-    return NFCDefTag.fromJson(jsonDecode(result));
+  Future<NFCTag> scanNFCNDefTag({NFCConfiguration? configuration}) async {
+    late NFCConfiguration defaultConfiguration;
+    if (Platform.isIOS) {
+      defaultConfiguration = IosNfcScanConfiguration();
+    } else {
+      //TODO implement android configurations
+    }
+    final result = await methodChannel.invokeMethod(
+        "scanNDEFTag", {...(configuration ?? defaultConfiguration).toJson()});
+    return NFCTag.fromJson(jsonDecode(result));
   }
 
   @override
-  Future<NFCTag> scanNFC({required String type}) async {
-    final result = await methodChannel.invokeMethod("scan", {"type": type});
-    return NFCDefTag.fromJson(jsonDecode(result));
+  Future<NFCTag> scanNFCTag({NFCConfiguration? configuration}) async {
+    late NFCConfiguration defaultConfiguration;
+    if (Platform.isIOS) {
+      defaultConfiguration = IosNfcScanConfiguration();
+    } else {
+      //TODO implement android configurations
+    }
+    final result = await methodChannel.invokeMethod(
+        "scanTag", {...(configuration ?? defaultConfiguration).toJson()});
+    inspect(jsonDecode(result));
+    return NFCTag.fromJson(jsonDecode(result));
+  }
+
+  @override
+  void finishCurrentSession({String? errorMessage}) async {
+    return await methodChannel.invokeMethod("finishCurrentSession",
+        {if (errorMessage != null) "errorMessage": errorMessage});
   }
 }

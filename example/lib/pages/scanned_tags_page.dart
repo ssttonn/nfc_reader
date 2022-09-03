@@ -1,6 +1,5 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:nfc_reader/models/nfc_configuration.dart';
 import 'package:nfc_reader/models/nfc_tag.dart';
 import 'package:nfc_reader/nfc_reader.dart';
 
@@ -25,24 +24,35 @@ class _ScannedTagsPageState extends State<ScannedTagsPage> {
     );
   }
 
+  _onScanDefTag() async {
+    try {
+      NFCTag tag = await NfcReader.instance.scanNFCNDefTag();
+
+      setState(() {
+        tags.add(tag);
+      });
+    } catch (e) {}
+  }
+
+  _onScanTag() async {
+    try {
+      NFCTag tag = await NfcReader.instance.scanTag();
+      setState(() {
+        tags.add(tag);
+      });
+    } catch (e) {}
+  }
+
   Widget _body() {
     return FutureBuilder<bool>(
-        future: NfcReader()
+        future: NfcReader.instance
             .isNFCAvailable(), // Detect if the current device supports NFC
         builder: (context, snapshot) {
           if (snapshot.hasData && snapshot.data!) {
             return ListView(
               children: [
-                _scanBtn("Scan for NDEF tags", onPressed: () async {
-                  try {
-                    NFCTag tag = await NfcReader().scanNFCNDefTag();
-                    setState(() {
-                      tags.add(tag);
-                    });
-                  } catch (e) {
-                    print(e.toString());
-                  }
-                }),
+                _scanBtn("Scan for NDEF tags", onPressed: _onScanDefTag),
+                _scanBtn("Scan for tags", onPressed: _onScanTag),
                 ...tags
                     .map((tag) => Container(
                           padding: const EdgeInsets.all(14),
@@ -65,7 +75,7 @@ class _ScannedTagsPageState extends State<ScannedTagsPage> {
                               Text("Readonly: ${tag.readable}",
                                   style: themeData!.textTheme.subtitle1
                                       ?.copyWith(fontWeight: FontWeight.bold)),
-                              Text("Total payloads: ${tag.payloads?.length}",
+                              Text("Total payloads: ${tag.payloads.length}",
                                   style: themeData!.textTheme.subtitle1
                                       ?.copyWith(fontWeight: FontWeight.bold))
                             ],

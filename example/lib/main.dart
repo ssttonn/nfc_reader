@@ -21,8 +21,6 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  List<NFCDefTag> _tags = [];
-
   @override
   void initState() {
     super.initState();
